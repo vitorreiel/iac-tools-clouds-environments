@@ -98,6 +98,11 @@ class sdn_topology (
     require => File["${topology_dir}/onos"],
   }
 
+  exec { 'record_install_done':
+    command => '/bin/bash -c "date +%s%N > /tmp/t_install_done"',
+    require => Service['docker'],
+  }
+
   # ------------------------------------------------------------------
   # Run docker compose
   # ------------------------------------------------------------------

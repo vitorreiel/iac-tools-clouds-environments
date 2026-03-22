@@ -53,6 +53,9 @@
     enabled: true
     state: started
 
+- name: Record install-done timestamp
+  shell: date +%s%N > /tmp/t_install_done
+
 - name: Add ubuntu user to docker group
   user:
     name: ubuntu

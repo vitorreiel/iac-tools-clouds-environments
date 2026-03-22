@@ -34,6 +34,7 @@ Resources:
                 - systemctl enable docker
                 - systemctl start docker
                 - usermod -aG docker ubuntu
+                - date +%s%N > /tmp/t_install_done
                 - TOPO_DIR=/home/ubuntu/sdn-topology/onos
                 - mkdir -p "$TOPO_DIR"
                 - "echo __DOCKER_COMPOSE_B64__ | base64 -d > \"$TOPO_DIR/docker-compose.yml\""

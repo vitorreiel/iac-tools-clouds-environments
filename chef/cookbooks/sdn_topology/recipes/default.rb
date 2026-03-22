@@ -56,6 +56,10 @@ service 'docker' do
   action [:enable, :start]
 end
 
+execute 'record_install_done' do
+  command 'date +%s%N > /tmp/t_install_done'
+end
+
 group 'docker' do
   members [docker_user]
   append  true

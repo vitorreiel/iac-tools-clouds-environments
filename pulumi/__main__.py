@@ -62,6 +62,7 @@ sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plu
 sudo systemctl enable docker
 sudo systemctl start docker
 sudo usermod -aG docker ubuntu
+date +%s%N > /tmp/t_install_done
 mkdir -p /home/ubuntu/sdn-topology/onos
 mv /tmp/docker-compose.yml /home/ubuntu/sdn-topology/onos/
 mv /tmp/start.sh           /home/ubuntu/sdn-topology/onos/
