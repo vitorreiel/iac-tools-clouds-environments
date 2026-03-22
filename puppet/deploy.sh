@@ -16,11 +16,11 @@ ONOS_DIR="$SCRIPT_DIR/../sdn-topology/fat-tree/onos"
 SSH_OPTS="-i $KEY -o StrictHostKeyChecking=no -o ConnectTimeout=30"
 
 echo "==> Copying Puppet modules to $EC2_IP..."
-ssh $SSH_OPTS "ubuntu@$EC2_IP" "mkdir -p /tmp/puppet-modules /tmp/sdn-topology/fat-tree/onos"
+ssh $SSH_OPTS "ubuntu@$EC2_IP" "rm -rf /tmp/puppet-modules /tmp/puppet-modules-src /tmp/puppet-manifests /tmp/sdn-topology && mkdir -p /tmp/puppet-modules /tmp/sdn-topology/fat-tree/onos"
 
 scp -i "$KEY" -o StrictHostKeyChecking=no -r \
-  "$SCRIPT_DIR/modules" \
-  "ubuntu@$EC2_IP:/tmp/puppet-modules-src"
+  "$SCRIPT_DIR/modules/sdn_topology" \
+  "ubuntu@$EC2_IP:/tmp/puppet-modules/sdn_topology"
 
 scp -i "$KEY" -o StrictHostKeyChecking=no \
   "$ONOS_DIR/docker-compose.yml" \
@@ -31,9 +31,6 @@ scp -i "$KEY" -o StrictHostKeyChecking=no \
 scp -i "$KEY" -o StrictHostKeyChecking=no -r \
   "$SCRIPT_DIR/manifests" \
   "ubuntu@$EC2_IP:/tmp/puppet-manifests"
-
-echo "==> Moving modules into place..."
-ssh $SSH_OPTS "ubuntu@$EC2_IP" "cp -r /tmp/puppet-modules-src/* /tmp/puppet-modules/ 2>/dev/null || cp -r /tmp/puppet-modules-src /tmp/puppet-modules/sdn_topology"
 
 echo "==> Ensuring Puppet agent is installed..."
 ssh $SSH_OPTS "ubuntu@$EC2_IP" 'bash -s' << 'INSTALL'

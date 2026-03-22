@@ -1,6 +1,6 @@
 ---
 - name: Configure SDN topology on EC2
-  hosts: sdn
+  hosts: all
   become: true
 
   vars:

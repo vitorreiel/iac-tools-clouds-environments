@@ -5,8 +5,8 @@ class sdn_topology (
   String $docker_user  = 'ubuntu',
 ) {
 
-  # Path to ONOS files inside sdn-topology/ (3 levels up from this module)
-  $onos_src = "${module_directory('sdn_topology')}/../../../sdn-topology/fat-tree/onos"
+  # Path to ONOS files copied by deploy.sh
+  $onos_src = '/tmp/sdn-topology/fat-tree/onos'
 
   # ------------------------------------------------------------------
   # Install OVS kernel module

@@ -4,3 +4,4 @@ aws_secret_key  = "<AWS_SECRET_ACCESS_KEY>"
 # instance_type = "c7i-flex.large"
 # aws_region    = "us-east-1"
 # ami_id        = "ami-07062e2a343acc423"  # Ubuntu 24.04 LTS us-east-1
+# pulumi_access_token   = "token"

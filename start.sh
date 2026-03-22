@@ -133,7 +133,11 @@ run_tool() {
     3) # CloudFormation
       cd "$SCRIPT_DIR/cloudformation"
       ./build.sh
+      export AWS_ACCESS_KEY_ID=$(grep aws_access_key "$SCRIPT_DIR/template/terraform.tfvars" | awk -F'"' '{print $2}')
+      export AWS_SECRET_ACCESS_KEY=$(grep aws_secret_key "$SCRIPT_DIR/template/terraform.tfvars" | awk -F'"' '{print $2}')
+      export AWS_DEFAULT_REGION=$(grep aws_region "$SCRIPT_DIR/template/terraform.tfvars" | awk -F'"' '{print $2}')
       aws cloudformation deploy \
+        --region us-east-2 \
         --template-file template.yaml \
         --stack-name sdn-topology-cfg \
         --parameter-overrides InstanceId="$instance_id" \
@@ -141,6 +145,7 @@ run_tool() {
 
       # Poll SSM association until it finishes
       ASSOC_ID=$(aws cloudformation describe-stack-resource \
+        --region us-east-2 \
         --stack-name sdn-topology-cfg \
         --logical-resource-id SDNTopologyAssociation \
         --query 'StackResourceDetail.PhysicalResourceId' \
@@ -149,6 +154,7 @@ run_tool() {
       echo "  Waiting for SSM Run Command (association: $ASSOC_ID)..."
       while true; do
         STATUS=$(aws ssm describe-association-executions \
+          --region us-east-2 \
           --association-id "$ASSOC_ID" \
           --query 'AssociationExecutions[0].Status' \
           --output text 2>/dev/null || echo "Pending")
@@ -159,12 +165,18 @@ run_tool() {
         esac
       done
       ;;
-
+ 
     4) # Pulumi
       cd "$SCRIPT_DIR/pulumi"
-      pip install -q -r requirements.txt
-      pulumi config set ec2PublicIp "$ip"
-      pulumi up --yes --non-interactive
+      export PULUMI_ACCESS_TOKEN=$(grep pulumi_access_token "$SCRIPT_DIR/template/terraform.tfvars" | awk -F'"' '{print $2}')
+      python3 -m venv .venv 2>/dev/null || { sudo apt-get install -y python3-venv && python3 -m venv .venv; }
+      .venv/bin/pip install -q -r requirements.txt
+      PULUMI_PYTHON_CMD="$SCRIPT_DIR/pulumi/.venv/bin/python3" \
+        pulumi stack select --create dev 2>/dev/null || true
+      PULUMI_PYTHON_CMD="$SCRIPT_DIR/pulumi/.venv/bin/python3" \
+        pulumi config set ec2PublicIp "$ip"
+      PULUMI_PYTHON_CMD="$SCRIPT_DIR/pulumi/.venv/bin/python3" \
+        pulumi up --yes --non-interactive --stack dev
       ;;
 
     5) # Ansible
@@ -243,7 +255,7 @@ for i in $(seq 1 "$REPEATS"); do
   echo "[3/3] Destroying EC2 instance..."
   [ "$TOOL_NUM" -eq 3 ] && cleanup_cloudformation
   cd "$TEMPLATE_DIR"
-  #terraform destroy -auto-approve -input=false -no-color
+  terraform destroy -auto-approve -input=false -no-color
 
   echo "  Iteration $i complete."
 done
