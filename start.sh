@@ -50,7 +50,7 @@ read -rp "Confirm? [y/N] " CONFIRM
 # Initialize CSV log
 mkdir -p "$LOG_DIR"
 if [ ! -f "$LOG_FILE" ]; then
-  echo "tool,iteration,duration_total_sec,duration_install_sec,duration_topology_sec,cpu_min_pct,cpu_max_pct,cpu_avg_pct,mem_min_pct,mem_max_pct,mem_avg_pct" > "$LOG_FILE"
+  echo "tool,iteration,duration_total_sec,duration_install_sec,duration_topology_sec,convergence_sec,cpu_min_pct,cpu_max_pct,cpu_avg_pct,mem_min_pct,mem_max_pct,mem_avg_pct,net_rx_mb,net_tx_mb,net_rx_rate_mbps,net_tx_rate_mbps,disk_read_mb,disk_write_mb,ops_count" > "$LOG_FILE"
 fi
 
 # ------------------------------------------------------------------
@@ -214,6 +214,37 @@ cleanup_cloudformation() {
 }
 
 # ------------------------------------------------------------------
+# Parse ops count from tool output log
+# ------------------------------------------------------------------
+get_ops_count() {
+  local log="$1"
+  case "$TOOL_NUM" in
+    1|2) # Terraform / OpenTofu: "Apply complete! Resources: X added, Y changed, Z destroyed."
+      grep 'Apply complete' "$log" | grep -oP '\d+' | awk '{s+=$1} END{print s+0}'
+      ;;
+    3) # CloudFormation: query stack resource count via AWS CLI
+      aws cloudformation describe-stack-resources \
+        --region us-east-2 \
+        --stack-name sdn-topology-cfg \
+        --query 'length(StackResources)' \
+        --output text 2>/dev/null
+      ;;
+    4) # Pulumi: "+ N created" in Resources summary
+      grep -oP '^\s+[+] \K\d+(?= created)' "$log" | tail -1
+      ;;
+    5) # Ansible: "ok=N" from play recap
+      grep -oP 'ok=\K\d+' "$log" | tail -1
+      ;;
+    6) # Puppet: count resource-change Notice lines
+      grep -c '^Notice: /Stage\[main\]\/' "$log" 2>/dev/null || echo 0
+      ;;
+    7) # Chef: "N/M resources updated"
+      grep -oP '\d+(?=/\d+ resources updated)' "$log" | tail -1
+      ;;
+  esac
+}
+
+# ------------------------------------------------------------------
 # Main loop
 # ------------------------------------------------------------------
 for i in $(seq 1 "$REPEATS"); do
@@ -266,15 +297,38 @@ nohup bash /tmp/monitor.sh > /dev/null 2>&1 &
 echo $! > /tmp/monitor.pid
 MONITOR_SETUP
 
+  # Network + disk baseline (single SSH call)
+  INIT_SNAP=$(ssh -i "$KEY" -o StrictHostKeyChecking=no -o BatchMode=yes \
+    "ubuntu@$EC2_IP" "
+      awk 'NF>0 && !/lo:/ && /:/{gsub(/:/, \" \"); rx+=\$2; tx+=\$10} END{print rx+0, tx+0}' /proc/net/dev
+      awk '\$3~/^[svxh]d[a-z]$/ || \$3~/^nvme[0-9]+n[0-9]+$/{r+=\$6; w+=\$10} END{print r+0, w+0}' /proc/diskstats
+    " 2>/dev/null || printf '0 0\n0 0')
+  NET_INIT=$(echo  "$INIT_SNAP" | sed -n '1p')
+  DISK_INIT=$(echo "$INIT_SNAP" | sed -n '2p')
+
+  TOOL_LOG=/tmp/tool_output.log
+  set -o pipefail
   T_START=$(date +%s%N)
-  run_tool "$EC2_IP" "$EC2_ID"
+  run_tool "$EC2_IP" "$EC2_ID" 2>&1 | tee "$TOOL_LOG"
   T_END=$(date +%s%N)
+  set +o pipefail
+
+  # Network + disk final snapshot (single SSH call)
+  FINAL_SNAP=$(ssh -i "$KEY" -o StrictHostKeyChecking=no -o BatchMode=yes \
+    "ubuntu@$EC2_IP" "
+      awk 'NF>0 && !/lo:/ && /:/{gsub(/:/, \" \"); rx+=\$2; tx+=\$10} END{print rx+0, tx+0}' /proc/net/dev
+      awk '\$3~/^[svxh]d[a-z]$/ || \$3~/^nvme[0-9]+n[0-9]+$/{r+=\$6; w+=\$10} END{print r+0, w+0}' /proc/diskstats
+    " 2>/dev/null || printf '0 0\n0 0')
+  NET_FINAL=$(echo  "$FINAL_SNAP" | sed -n '1p')
+  DISK_FINAL=$(echo "$FINAL_SNAP" | sed -n '2p')
 
   # Stop monitoring
   ssh -i "$KEY" -o StrictHostKeyChecking=no -o BatchMode=yes \
     "ubuntu@$EC2_IP" 'kill $(cat /tmp/monitor.pid 2>/dev/null) 2>/dev/null; true'
 
-  DURATION_TOTAL=$(echo "scale=3; ($T_END - $T_START) / 1000000000" | bc)
+  # Tool-only duration — used for install/topology split and network throughput rates
+  # (net snapshots bracket only the tool run, not convergence)
+  DURATION_TOOL=$(echo "scale=3; ($T_END - $T_START) / 1000000000" | bc)
 
   # Read install-done timestamp written by the tool on the EC2 instance
   T_INSTALL=$(ssh -i "$KEY" -o StrictHostKeyChecking=no -o BatchMode=yes \
@@ -282,11 +336,31 @@ MONITOR_SETUP
 
   if [ -n "$T_INSTALL" ]; then
     DURATION_INSTALL=$(echo "scale=3; ($T_INSTALL - $T_START) / 1000000000" | bc)
-    # topology = total - install ensures the three values are always consistent
-    DURATION_TOPOLOGY=$(echo "scale=3; $DURATION_TOTAL - $DURATION_INSTALL" | bc)
+    DURATION_TOPOLOGY=$(echo "scale=3; $DURATION_TOOL - $DURATION_INSTALL" | bc)
   else
     DURATION_INSTALL=""
     DURATION_TOPOLOGY=""
+  fi
+
+  # Convergence: poll ONOS HTTP API until it responds (max 5 min)
+  echo "  Waiting for ONOS convergence..."
+  CONVERGENCE_SEC=""
+  T_CONV_START=$(date +%s%N)
+  for _c in $(seq 1 300); do
+    if curl -s -u onos:rocks --max-time 3 \
+         "http://$EC2_IP:8181/onos/v1/info" -o /dev/null 2>/dev/null; then
+      T_CONV_END=$(date +%s%N)
+      CONVERGENCE_SEC=$(echo "scale=3; ($T_CONV_END - $T_CONV_START) / 1000000000" | bc)
+      break
+    fi
+    sleep 1
+  done
+
+  # duration_total = install + topology + convergence (Opção B: tempo até ambiente pronto)
+  if [ -n "$DURATION_INSTALL" ] && [ -n "$CONVERGENCE_SEC" ]; then
+    DURATION_TOTAL=$(echo "scale=3; $DURATION_INSTALL + $DURATION_TOPOLOGY + $CONVERGENCE_SEC" | bc)
+  else
+    DURATION_TOTAL="$DURATION_TOOL"
   fi
 
   # Collect CPU and RAM stats from the monitoring log
@@ -312,10 +386,33 @@ MONITOR_SETUP
     MEM_MIN=""; MEM_MAX=""; MEM_AVG=""
   fi
 
-  echo "  Duration: total=${DURATION_TOTAL}s  install=${DURATION_INSTALL}s  topology=${DURATION_TOPOLOGY}s"
-  echo "  CPU: min=${CPU_MIN}%  max=${CPU_MAX}%  avg=${CPU_AVG}%"
-  echo "  RAM: min=${MEM_MIN}%  max=${MEM_MAX}%  avg=${MEM_AVG}%"
-  echo "$TOOL_NAME,$i,$DURATION_TOTAL,$DURATION_INSTALL,$DURATION_TOPOLOGY,$CPU_MIN,$CPU_MAX,$CPU_AVG,$MEM_MIN,$MEM_MAX,$MEM_AVG" >> "$LOG_FILE"
+  # Compute network delta in MB and throughput rates
+  NET_INIT_RX=$(echo  "$NET_INIT"  | awk '{print $1}')
+  NET_INIT_TX=$(echo  "$NET_INIT"  | awk '{print $2}')
+  NET_FINAL_RX=$(echo "$NET_FINAL" | awk '{print $1}')
+  NET_FINAL_TX=$(echo "$NET_FINAL" | awk '{print $2}')
+  NET_RX_MB=$(awk "BEGIN{printf \"%.2f\", ($NET_FINAL_RX - $NET_INIT_RX) / 1048576}")
+  NET_TX_MB=$(awk "BEGIN{printf \"%.2f\", ($NET_FINAL_TX - $NET_INIT_TX) / 1048576}")
+  NET_RX_RATE=$(awk "BEGIN{printf \"%.3f\", ($DURATION_TOOL>0)?$NET_RX_MB/$DURATION_TOOL:0}")
+  NET_TX_RATE=$(awk "BEGIN{printf \"%.3f\", ($DURATION_TOOL>0)?$NET_TX_MB/$DURATION_TOOL:0}")
+
+  # Compute disk delta in MB (sectors × 512 B / 1 MiB)
+  DISK_INIT_R=$(echo  "$DISK_INIT"  | awk '{print $1}')
+  DISK_INIT_W=$(echo  "$DISK_INIT"  | awk '{print $2}')
+  DISK_FINAL_R=$(echo "$DISK_FINAL" | awk '{print $1}')
+  DISK_FINAL_W=$(echo "$DISK_FINAL" | awk '{print $2}')
+  DISK_READ_MB=$(awk  "BEGIN{printf \"%.2f\", ($DISK_FINAL_R - $DISK_INIT_R) * 512 / 1048576}")
+  DISK_WRITE_MB=$(awk "BEGIN{printf \"%.2f\", ($DISK_FINAL_W - $DISK_INIT_W) * 512 / 1048576}")
+
+  OPS_COUNT=$(get_ops_count "$TOOL_LOG" 2>/dev/null || echo "")
+
+  echo "  Duration:    total=${DURATION_TOTAL}s  install=${DURATION_INSTALL}s  topology=${DURATION_TOPOLOGY}s  convergence=${CONVERGENCE_SEC}s"
+  echo "  CPU:         min=${CPU_MIN}%  max=${CPU_MAX}%  avg=${CPU_AVG}%"
+  echo "  RAM:         min=${MEM_MIN}%  max=${MEM_MAX}%  avg=${MEM_AVG}%"
+  echo "  Net:         rx=${NET_RX_MB}MB (${NET_RX_RATE}MB/s)  tx=${NET_TX_MB}MB (${NET_TX_RATE}MB/s)"
+  echo "  Disk:        read=${DISK_READ_MB}MB  write=${DISK_WRITE_MB}MB"
+  echo "  Ops count:   ${OPS_COUNT}"
+  echo "$TOOL_NAME,$i,$DURATION_TOTAL,$DURATION_INSTALL,$DURATION_TOPOLOGY,$CONVERGENCE_SEC,$CPU_MIN,$CPU_MAX,$CPU_AVG,$MEM_MIN,$MEM_MAX,$MEM_AVG,$NET_RX_MB,$NET_TX_MB,$NET_RX_RATE,$NET_TX_RATE,$DISK_READ_MB,$DISK_WRITE_MB,$OPS_COUNT" >> "$LOG_FILE"
   # -----------------------
 
   # 3. Cleanup and destroy
