@@ -1,0 +1,6 @@
+aws_access_key  = "<AWS_ACCESS_KEY_ID>"
+aws_secret_key  = "<AWS_SECRET_ACCESS_KEY>"
+# key_name      = "chaves-aws"
+# instance_type = "c7i-flex.large"
+# aws_region    = "us-east-1"
+# ami_id        = "ami-07062e2a343acc423"  # Ubuntu 24.04 LTS us-east-1

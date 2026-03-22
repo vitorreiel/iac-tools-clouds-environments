@@ -1,0 +1,25 @@
+services:
+
+  onos:
+    image: onosproject/onos:latest
+    container_name: onos
+    network_mode: host
+    environment:
+      - ONOS_APPS=drivers,openflow,fwd,spanning-tree,gui2
+    restart: unless-stopped
+
+  containernet:
+    image: containernet/containernet
+    container_name: containernet
+    privileged: true
+    pid: host
+    network_mode: host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./topology.py:/containernet/topology.py
+      - ./start.sh:/containernet/start.sh
+    depends_on:
+      - onos
+    stdin_open: true
+    tty: true
+    command: bash /containernet/start.sh

@@ -1,0 +1,7 @@
+name             'sdn_topology'
+maintainer       'Your Name'
+maintainer_email 'your@email.com'
+license          'MIT'
+description      'Installs Docker and deploys SDN topology'
+version          '1.0.0'
+chef_version     '>= 16.0'

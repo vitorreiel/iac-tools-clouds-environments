@@ -1,0 +1,31 @@
+# SSH keys
+ssh/
+
+# Terraform
+**/.terraform/
+**/.terraform.lock.hcl
+**/terraform.tfstate
+**/terraform.tfstate.backup
+**/terraform.tfvars
+**/crash.log
+
+# OpenTofu
+**/.tofu/
+
+# Pulumi
+**/Pulumi.*.yaml
+**/__pycache__/
+**/*.pyc
+**/venv/
+**/.venv/
+
+# CloudFormation
+cloudformation/template.yaml
+
+# Results
+results/
+
+# Misc
+*.log
+*.tmp
+.DS_Store

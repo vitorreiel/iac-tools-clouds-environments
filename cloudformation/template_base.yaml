@@ -1,0 +1,57 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SDN Topology - configure existing EC2 via SSM Run Command
+
+Parameters:
+  InstanceId:
+    Type: String
+    Description: ID of the existing EC2 instance to configure (e.g. i-0abc123def456789)
+
+Resources:
+
+  SDNTopologyDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Command
+      Content:
+        schemaVersion: '2.2'
+        description: Install Docker and deploy ONOS topology
+        mainSteps:
+          - action: aws:runShellScript
+            name: configure
+            inputs:
+              runCommand:
+                - set -e
+                - apt-get update -y
+                - apt-get install -y linux-modules-extra-aws openvswitch-switch
+                - modprobe openvswitch
+                - apt-get install -y ca-certificates curl gnupg
+                - install -m 0755 -d /etc/apt/keyrings
+                - "curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg"
+                - chmod a+r /etc/apt/keyrings/docker.gpg
+                - "echo \"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable\" | tee /etc/apt/sources.list.d/docker.list"
+                - apt-get update -y
+                - apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+                - systemctl enable docker
+                - systemctl start docker
+                - usermod -aG docker ubuntu
+                - TOPO_DIR=/home/ubuntu/sdn-topology/onos
+                - mkdir -p "$TOPO_DIR"
+                - "echo __DOCKER_COMPOSE_B64__ | base64 -d > \"$TOPO_DIR/docker-compose.yml\""
+                - "echo __START_SH_B64__ | base64 -d > \"$TOPO_DIR/start.sh\""
+                - "echo __TOPOLOGY_PY_B64__ | base64 -d > \"$TOPO_DIR/topology.py\""
+                - chmod +x "$TOPO_DIR/start.sh"
+                - chown -R ubuntu:ubuntu /home/ubuntu/sdn-topology
+                - cd "$TOPO_DIR" && sudo -u ubuntu docker compose up -d
+
+  SDNTopologyAssociation:
+    Type: AWS::SSM::Association
+    Properties:
+      Name: !Ref SDNTopologyDocument
+      Targets:
+        - Key: InstanceIds
+          Values: [!Ref InstanceId]
+
+Outputs:
+  InstanceId:
+    Value: !Ref InstanceId
+    Description: Configured EC2 instance ID

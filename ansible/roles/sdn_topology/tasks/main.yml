@@ -1,0 +1,88 @@
+---
+- name: Install OVS kernel module
+  apt:
+    name:
+      - linux-modules-extra-aws
+      - openvswitch-switch
+    state: present
+    update_cache: true
+
+- name: Load OVS kernel module
+  modprobe:
+    name: openvswitch
+    state: present
+
+- name: Install Docker dependencies
+  apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+    state: present
+
+- name: Add Docker GPG key
+  shell: |
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    chmod a+r /etc/apt/keyrings/docker.gpg
+  args:
+    creates: /etc/apt/keyrings/docker.gpg
+
+- name: Add Docker repository
+  shell: |
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+    https://download.docker.com/linux/ubuntu \
+    $(. /etc/os-release && echo $VERSION_CODENAME) stable" | \
+    tee /etc/apt/sources.list.d/docker.list
+  args:
+    creates: /etc/apt/sources.list.d/docker.list
+
+- name: Install Docker
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-compose-plugin
+    state: present
+    update_cache: true
+
+- name: Enable and start Docker
+  systemd:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Add ubuntu user to docker group
+  user:
+    name: ubuntu
+    groups: docker
+    append: true
+
+- name: Create topology directory
+  file:
+    path: "{{ topology_dir }}/onos"
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: '0755'
+
+- name: Copy topology files
+  copy:
+    src: "{{ playbook_dir }}/../sdn-topology/fat-tree/onos/{{ item.name }}"
+    dest: "{{ topology_dir }}/onos/{{ item.name }}"
+    owner: ubuntu
+    group: ubuntu
+    mode: "{{ item.mode }}"
+  loop:
+    - { name: docker-compose.yml, mode: '0644' }
+    - { name: topology.py,        mode: '0644' }
+    - { name: start.sh,           mode: '0755' }
+
+- name: Run docker compose in background
+  shell: |
+    cd {{ topology_dir }}/onos
+    docker compose up -d
+  become_user: ubuntu
+  environment:
+    HOME: /home/ubuntu
