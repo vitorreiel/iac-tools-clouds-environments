@@ -42,7 +42,7 @@ Resources:
                 - "echo __TOPOLOGY_PY_B64__ | base64 -d > \"$TOPO_DIR/topology.py\""
                 - chmod +x "$TOPO_DIR/start.sh"
                 - chown -R ubuntu:ubuntu /home/ubuntu/sdn-topology
-                - cd "$TOPO_DIR" && sudo -u ubuntu docker compose up -d
+                - cd "$TOPO_DIR" && sudo -u ubuntu HOME=/home/ubuntu docker compose up -d
 
   SDNTopologyAssociation:
     Type: AWS::SSM::Association

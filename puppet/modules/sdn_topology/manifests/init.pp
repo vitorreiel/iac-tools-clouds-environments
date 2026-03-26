@@ -66,12 +66,20 @@ class sdn_topology (
   # ------------------------------------------------------------------
   # Deploy topology files directly from sdn-topology/
   # ------------------------------------------------------------------
-  file { "${topology_dir}/onos":
+  file { $topology_dir:
     ensure  => directory,
     owner   => $docker_user,
     group   => $docker_user,
     mode    => '0755',
     require => Service['docker'],
+  }
+
+  file { "${topology_dir}/onos":
+    ensure  => directory,
+    owner   => $docker_user,
+    group   => $docker_user,
+    mode    => '0755',
+    require => File[$topology_dir],
   }
 
   file { "${topology_dir}/onos/docker-compose.yml":

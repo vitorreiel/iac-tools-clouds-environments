@@ -85,6 +85,32 @@ resource "aws_security_group" "sdn" {
 }
 
 # ------------------------------------------------------------------
+# IAM role for SSM (required for CloudFormation tool)
+# ------------------------------------------------------------------
+resource "aws_iam_role" "ssm" {
+  name = "sdn-topology-ssm-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "ssm" {
+  role       = aws_iam_role.ssm.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_instance_profile" "ssm" {
+  name = "sdn-topology-ssm-profile"
+  role = aws_iam_role.ssm.name
+}
+
+# ------------------------------------------------------------------
 # EC2 Instance
 # ------------------------------------------------------------------
 resource "aws_instance" "sdn" {
@@ -94,6 +120,7 @@ resource "aws_instance" "sdn" {
   vpc_security_group_ids      = [aws_security_group.sdn.id]
   key_name                    = var.key_name
   associate_public_ip_address = true
+  iam_instance_profile        = aws_iam_instance_profile.ssm.name
 
   root_block_device {
     volume_size = 30

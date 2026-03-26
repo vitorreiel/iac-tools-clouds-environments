@@ -159,7 +159,14 @@ run_tool() {
           --query 'AssociationExecutions[0].Status' \
           --output text 2>/dev/null || echo "Pending")
         case "$STATUS" in
-          Success) echo "  SSM completed successfully."; break ;;
+          Success)
+            echo "  SSM completed successfully."
+            echo "  [CF diag] containers on EC2:"
+            ssh -i "$KEY" -o StrictHostKeyChecking=no -o BatchMode=yes "ubuntu@$ip" \
+              "docker ps -a --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'" 2>/dev/null || true
+            echo "  [CF diag] t_install_done: $(ssh -i "$KEY" -o StrictHostKeyChecking=no -o BatchMode=yes "ubuntu@$ip" 'cat /tmp/t_install_done 2>/dev/null || echo MISSING')"
+            break
+            ;;
           Failed)  echo "  ERROR: SSM Run Command failed."; exit 1 ;;
           *)       sleep 5 ;;
         esac
@@ -229,14 +236,15 @@ get_ops_count() {
         --query 'length(StackResources)' \
         --output text 2>/dev/null
       ;;
-    4) # Pulumi: "+ N created" in Resources summary
+    4) # Pulumi: "N changes" summary (update/replace runs) or "+ N created" (fresh stack)
+      grep -oP '\d+(?= changes\.)' "$log" | tail -1 || \
       grep -oP '^\s+[+] \K\d+(?= created)' "$log" | tail -1
       ;;
     5) # Ansible: "ok=N" from play recap
       grep -oP 'ok=\K\d+' "$log" | tail -1
       ;;
     6) # Puppet: count resource-change Notice lines
-      grep -c '^Notice: /Stage\[main\]\/' "$log" 2>/dev/null || echo 0
+      tr '\r' '\n' < "$log" | grep -c 'Notice: /Stage\[main\]\/' || true
       ;;
     7) # Chef: "N/M resources updated"
       grep -oP '\d+(?=/\d+ resources updated)' "$log" | tail -1
@@ -306,6 +314,14 @@ MONITOR_SETUP
   NET_INIT=$(echo  "$INIT_SNAP" | sed -n '1p')
   DISK_INIT=$(echo "$INIT_SNAP" | sed -n '2p')
 
+  # CloudFormation: export AWS credentials in parent shell so get_ops_count can use them
+  # (run_tool runs in a pipeline subshell — exports inside it don't reach the parent)
+  if [ "$TOOL_NUM" -eq 3 ]; then
+    export AWS_ACCESS_KEY_ID=$(grep aws_access_key "$SCRIPT_DIR/template/terraform.tfvars" | awk -F'"' '{print $2}')
+    export AWS_SECRET_ACCESS_KEY=$(grep aws_secret_key "$SCRIPT_DIR/template/terraform.tfvars" | awk -F'"' '{print $2}')
+    export AWS_DEFAULT_REGION=$(grep aws_region "$SCRIPT_DIR/template/terraform.tfvars" | awk -F'"' '{print $2}')
+  fi
+
   TOOL_LOG=/tmp/tool_output.log
   set -o pipefail
   T_START=$(date +%s%N)
@@ -342,17 +358,36 @@ MONITOR_SETUP
     DURATION_TOPOLOGY=""
   fi
 
-  # Convergence: poll ONOS HTTP API until it responds (max 5 min)
-  echo "  Waiting for ONOS convergence..."
+  # Convergence: wait until ONOS discovers all 20 switches (topology converged)
+  # Expected: 20 devices (s1-s20) in the fat-tree topology
+  echo "  Waiting for ONOS convergence (discovering 20 switches)..."
   CONVERGENCE_SEC=""
   T_CONV_START=$(date +%s%N)
+  STABLE_COUNT=0
+  PREV_DEVICE_COUNT=0
+
   for _c in $(seq 1 300); do
-    if curl -s -u onos:rocks --max-time 3 \
-         "http://$EC2_IP:8181/onos/v1/info" -o /dev/null 2>/dev/null; then
-      T_CONV_END=$(date +%s%N)
-      CONVERGENCE_SEC=$(echo "scale=3; ($T_CONV_END - $T_CONV_START) / 1000000000" | bc)
-      break
+    DEVICE_COUNT=$(curl -s -u onos:rocks --max-time 3 \
+      "http://$EC2_IP:8181/onos/v1/devices" 2>/dev/null | grep -o '"id"' | wc -l)
+
+    if [ "$DEVICE_COUNT" -eq 20 ]; then
+      # Topology complete — wait for 3 seconds of stability (no new devices appearing)
+      if [ "$DEVICE_COUNT" -eq "$PREV_DEVICE_COUNT" ]; then
+        STABLE_COUNT=$((STABLE_COUNT + 1))
+        if [ $STABLE_COUNT -ge 3 ]; then
+          T_CONV_END=$(date +%s%N)
+          CONVERGENCE_SEC=$(echo "scale=3; ($T_CONV_END - $T_CONV_START) / 1000000000" | bc)
+          echo "    All 20 switches discovered and stable."
+          break
+        fi
+      else
+        STABLE_COUNT=0
+      fi
+    else
+      STABLE_COUNT=0
     fi
+
+    PREV_DEVICE_COUNT=$DEVICE_COUNT
     sleep 1
   done
 
