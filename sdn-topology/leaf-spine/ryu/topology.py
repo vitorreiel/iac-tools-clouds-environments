@@ -57,6 +57,7 @@ def build_topology():
         ('h17', '10.0.0.17'), ('h18', '10.0.0.18'),
         ('h19', '10.0.0.19'), ('h20', '10.0.0.20'),
         ('h21', '10.0.0.21'), ('h22', '10.0.0.22'),
+        ('h23', '10.0.0.23'), ('h24', '10.0.0.24'),
     ]
     hosts = {}
     for name, ip in hosts_cfg:
@@ -102,9 +103,9 @@ def build_topology():
         s7:  ['h9',  'h10', 'h11'],                                        # 3 hosts
         s8:  ['h12'],                                                      # 1 host
         s9:  ['h13', 'h14', 'h15', 'h16'],                                 # 4 hosts
-        s10: ['h17', 'h18', 'h19'],                                        # 3 hosts
-        s11: ['h20'],                                                      # 1 host
-        s12: ['h21', 'h22'],                                               # 2 hosts
+        s10: ['h17', 'h18', 'h19', 'h20', 'h21'],                          # 5 hosts
+        s11: ['h22'],                                                      # 1 host
+        s12: ['h23', 'h24'],                                               # 2 hosts
     }
     for leaf_sw, host_names in leaf_host_map.items():
         for hn in host_names:
