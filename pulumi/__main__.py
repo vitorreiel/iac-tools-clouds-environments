@@ -6,7 +6,8 @@ config = pulumi.Config()
 ec2_public_ip = config.require("ec2PublicIp")
 ssh_key_path  = config.get("sshKeyPath") or "../ssh/chaves-aws.pem"
 
-_onos_dir = os.path.join(os.path.dirname(__file__), "../sdn-topology/fat-tree/onos")
+_topology_dir = os.getenv("TOPOLOGY_DIR", "fat-tree")
+_onos_dir = os.path.join(os.path.dirname(__file__), f"../sdn-topology/{_topology_dir}/onos")
 
 with open(os.path.join(os.path.dirname(__file__), ssh_key_path)) as f:
     private_key = f.read()

@@ -8,3 +8,9 @@ variable "ssh_key_path" {
   type        = string
   default     = "../ssh/chaves-aws.pem"
 }
+
+variable "topology_dir" {
+  description = "SDN topology directory (fat-tree or leaf-spine)"
+  type        = string
+  default     = "fat-tree"
+}

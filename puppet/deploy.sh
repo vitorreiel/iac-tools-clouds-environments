@@ -11,12 +11,13 @@ fi
 
 KEY="$(cd "$(dirname "$0")" && pwd)/../ssh/chaves-aws.pem"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ONOS_DIR="$SCRIPT_DIR/../sdn-topology/fat-tree/onos"
+TOPOLOGY_DIR="${TOPOLOGY_DIR:-fat-tree}"
+ONOS_DIR="$SCRIPT_DIR/../sdn-topology/$TOPOLOGY_DIR/onos"
 
 SSH_OPTS="-i $KEY -o StrictHostKeyChecking=no -o ConnectTimeout=30"
 
 echo "==> Copying Puppet modules to $EC2_IP..."
-ssh $SSH_OPTS "ubuntu@$EC2_IP" "rm -rf /tmp/puppet-modules /tmp/puppet-modules-src /tmp/puppet-manifests /tmp/sdn-topology && mkdir -p /tmp/puppet-modules /tmp/sdn-topology/fat-tree/onos"
+ssh $SSH_OPTS "ubuntu@$EC2_IP" "rm -rf /tmp/puppet-modules /tmp/puppet-modules-src /tmp/puppet-manifests /tmp/sdn-topology && mkdir -p /tmp/puppet-modules /tmp/sdn-topology/$TOPOLOGY_DIR/onos"
 
 scp -i "$KEY" -o StrictHostKeyChecking=no -r \
   "$SCRIPT_DIR/modules/sdn_topology" \
@@ -26,7 +27,7 @@ scp -i "$KEY" -o StrictHostKeyChecking=no \
   "$ONOS_DIR/docker-compose.yml" \
   "$ONOS_DIR/start.sh" \
   "$ONOS_DIR/topology.py" \
-  "ubuntu@$EC2_IP:/tmp/sdn-topology/fat-tree/onos/"
+  "ubuntu@$EC2_IP:/tmp/sdn-topology/$TOPOLOGY_DIR/onos/"
 
 scp -i "$KEY" -o StrictHostKeyChecking=no -r \
   "$SCRIPT_DIR/manifests" \
@@ -47,6 +48,7 @@ ssh $SSH_OPTS "ubuntu@$EC2_IP" \
   "sudo /opt/puppetlabs/bin/puppet apply \
     /tmp/puppet-manifests/site.pp \
     --modulepath=/tmp/puppet-modules \
+    -e \"class { 'sdn_topology': topology_type => '$TOPOLOGY_DIR' }\" \
     --no-report"
 
 echo "==> Done. ONOS UI: http://$EC2_IP:8181/onos/ui"

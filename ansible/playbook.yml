@@ -5,6 +5,7 @@
 
   vars:
     topology_dir: /home/ubuntu/sdn-topology
+    topology_type: "{{ lookup('env', 'TOPOLOGY_DIR') | default('fat-tree', true) }}"
 
   roles:
     - sdn_topology

@@ -72,7 +72,7 @@
 
 - name: Copy topology files
   copy:
-    src: "{{ playbook_dir }}/../sdn-topology/fat-tree/onos/{{ item.name }}"
+    src: "{{ playbook_dir }}/../sdn-topology/{{ topology_type }}/onos/{{ item.name }}"
     dest: "{{ topology_dir }}/onos/{{ item.name }}"
     owner: ubuntu
     group: ubuntu

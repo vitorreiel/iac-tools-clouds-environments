@@ -2,11 +2,12 @@
 # Installs Docker and deploys the SDN topology via docker compose.
 class sdn_topology (
   String $topology_dir = '/home/ubuntu/sdn-topology',
+  String $topology_type = 'fat-tree',
   String $docker_user  = 'ubuntu',
 ) {
 
   # Path to ONOS files copied by deploy.sh
-  $onos_src = '/tmp/sdn-topology/fat-tree/onos'
+  $onos_src = "/tmp/sdn-topology/${topology_type}/onos"
 
   # ------------------------------------------------------------------
   # Install OVS kernel module

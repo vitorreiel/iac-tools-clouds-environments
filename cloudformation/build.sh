@@ -3,7 +3,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ONOS_DIR="$SCRIPT_DIR/../sdn-topology/fat-tree/onos"
+TOPOLOGY_DIR="${TOPOLOGY_DIR:-fat-tree}"
+ONOS_DIR="$SCRIPT_DIR/../sdn-topology/$TOPOLOGY_DIR/onos"
 BASE="$SCRIPT_DIR/template_base.yaml"
 OUT="$SCRIPT_DIR/template.yaml"
 

@@ -8,7 +8,7 @@ terraform {
 }
 
 locals {
-  onos_dir = "${path.module}/../sdn-topology/fat-tree/onos"
+  onos_dir = "${path.module}/../sdn-topology/${var.topology_dir}/onos"
 }
 
 resource "null_resource" "deploy_topology" {

@@ -1,7 +1,8 @@
 topology_dir = node['sdn_topology']['topology_dir']
 docker_user  = node['sdn_topology']['docker_user']
+topology_type = node['sdn_topology']['topology_type'] || 'fat-tree'
 
-onos_src = '/tmp/sdn-topology/fat-tree/onos'
+onos_src = "/tmp/sdn-topology/#{topology_type}/onos"
 
 # ------------------------------------------------------------------
 # Install OVS kernel module

@@ -12,6 +12,20 @@ echo "================================"
 echo "  SDN Topology — IaC Benchmark"
 echo "================================"
 echo ""
+echo "Select the SDN topology:"
+echo "  1) Fat-Tree"
+echo "  2) Leaf-Spine"
+echo ""
+read -rp "Topology [1-2]: " TOPOLOGY_NUM
+echo ""
+
+case "$TOPOLOGY_NUM" in
+  1) TOPOLOGY_NAME="Fat-Tree"; TOPOLOGY_DIR="fat-tree"; EXPECTED_DEVICES=20 ;;
+  2) TOPOLOGY_NAME="Leaf-Spine"; TOPOLOGY_DIR="leaf-spine"; EXPECTED_DEVICES=12 ;;
+  *) echo "Invalid option: $TOPOLOGY_NUM"; exit 1 ;;
+esac
+
+echo ""
 echo "Select the IaC tool:"
 echo "  1) Terraform"
 echo "  2) OpenTofu"
@@ -38,9 +52,10 @@ case "$TOOL_NUM" in
 esac
 
 TOOL_DIR=$(echo "$TOOL_NAME" | tr '[:upper:]' '[:lower:]')
-LOG_DIR="$SCRIPT_DIR/results/$TOOL_DIR"
+LOG_DIR="$SCRIPT_DIR/results/$TOPOLOGY_DIR/$TOOL_DIR"
 LOG_FILE="$LOG_DIR/results.csv"
 
+echo "Topology:    $TOPOLOGY_NAME"
 echo "Tool:        $TOOL_NAME"
 echo "Repetitions: $REPEATS"
 echo ""
@@ -114,25 +129,30 @@ run_tool() {
   local ip="$1"
   local instance_id="$2"
 
+  export TOPOLOGY_DIR="$TOPOLOGY_DIR"
+  export EXPECTED_DEVICES="$EXPECTED_DEVICES"
+
   case "$TOOL_NUM" in
 
     1) # Terraform
       cd "$SCRIPT_DIR/terraform"
       terraform init -input=false -no-color
       terraform apply -auto-approve -input=false -no-color \
-        -var="ec2_public_ip=$ip"
+        -var="ec2_public_ip=$ip" \
+        -var="topology_dir=$TOPOLOGY_DIR"
       ;;
 
     2) # OpenTofu
       cd "$SCRIPT_DIR/opentofu"
       tofu init -input=false -no-color
       tofu apply -auto-approve -input=false -no-color \
-        -var="ec2_public_ip=$ip"
+        -var="ec2_public_ip=$ip" \
+        -var="topology_dir=$TOPOLOGY_DIR"
       ;;
 
     3) # CloudFormation
       cd "$SCRIPT_DIR/cloudformation"
-      ./build.sh
+      TOPOLOGY_DIR="$TOPOLOGY_DIR" ./build.sh
       export AWS_ACCESS_KEY_ID=$(grep aws_access_key "$SCRIPT_DIR/template/terraform.tfvars" | awk -F'"' '{print $2}')
       export AWS_SECRET_ACCESS_KEY=$(grep aws_secret_key "$SCRIPT_DIR/template/terraform.tfvars" | awk -F'"' '{print $2}')
       export AWS_DEFAULT_REGION=$(grep aws_region "$SCRIPT_DIR/template/terraform.tfvars" | awk -F'"' '{print $2}')
@@ -358,9 +378,8 @@ MONITOR_SETUP
     DURATION_TOPOLOGY=""
   fi
 
-  # Convergence: wait until ONOS discovers all 20 switches (topology converged)
-  # Expected: 20 devices (s1-s20) in the fat-tree topology
-  echo "  Waiting for ONOS convergence (discovering 20 switches)..."
+  # Convergence: wait until ONOS discovers all switches (topology converged)
+  echo "  Waiting for ONOS convergence (discovering $EXPECTED_DEVICES switches)..."
   CONVERGENCE_SEC=""
   T_CONV_START=$(date +%s%N)
   STABLE_COUNT=0
@@ -370,14 +389,14 @@ MONITOR_SETUP
     DEVICE_COUNT=$(curl -s -u onos:rocks --max-time 3 \
       "http://$EC2_IP:8181/onos/v1/devices" 2>/dev/null | grep -o '"id"' | wc -l)
 
-    if [ "$DEVICE_COUNT" -eq 20 ]; then
+    if [ "$DEVICE_COUNT" -eq "$EXPECTED_DEVICES" ]; then
       # Topology complete — wait for 3 seconds of stability (no new devices appearing)
       if [ "$DEVICE_COUNT" -eq "$PREV_DEVICE_COUNT" ]; then
         STABLE_COUNT=$((STABLE_COUNT + 1))
         if [ $STABLE_COUNT -ge 3 ]; then
           T_CONV_END=$(date +%s%N)
           CONVERGENCE_SEC=$(echo "scale=3; ($T_CONV_END - $T_CONV_START) / 1000000000" | bc)
-          echo "    All 20 switches discovered and stable."
+          echo "    All $EXPECTED_DEVICES switches discovered and stable."
           break
         fi
       else
